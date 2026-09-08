@@ -5,8 +5,10 @@ from app.routes.user_routes import router as users_router
 
 app = FastAPI(
     title="device_systems API",
-    description="API REST para la gestión de usuarios del sistema device_systems",
-    version="1.0",
+    description="API REST intermedia para gestionar usuarios con CRUD completo, errores controlados y Dependency Injection.",
+    version="2.0.0",
+    contact={"name": "Equipo device_systems", "email": "soporte@device-systems.example"},
+    openapi_tags=[{"name": "users", "description": "Operaciones CRUD del recurso usuarios."}],
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -18,7 +20,7 @@ app.include_router(users_router)
 async def root() -> dict[str, str]:
     return {
         "message": "Bienvenido a device_systems API",
-        "version": "1.0",
+        "version": "2.0.0",
         "docs": "/docs",
         "redoc": "/redoc"
     }

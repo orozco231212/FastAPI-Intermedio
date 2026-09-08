@@ -2,9 +2,11 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.schemas.user_schema import UserCreate, UserResponse, UserRole
+from app.dependencies.user_dependencies import get_user_or_404
+from app.schemas.user_schema import UserCreate, UserPatch, UserResponse, UserRole, UserUpdate
+from app.services import user_service
 
 router = APIRouter(
     prefix="/users",
@@ -12,101 +14,80 @@ router = APIRouter(
     responses={404: {"description": "Usuario no encontrado"}},
 )
 
-users_db: list[dict] = [
-    {
-        "id": 1,
-        "name": "Juan Pérez",
-        "email": "juan@example.com",
-        "role": "admin",
-        "is_active": True
-    },
-    {
-        "id": 2,
-        "name": "María García",
-        "email": "maria@example.com",
-        "role": "user",
-        "is_active": True
-    },
-    {
-        "id": 3,
-        "name": "Carlos López",
-        "email": "carlos@example.com",
-        "role": "support",
-        "is_active": False
-    }
-]
-
-next_id = 4
-
-
-@router.get("", response_model=list[UserResponse], summary="Listar usuarios")
+@router.get(
+    "",
+    response_model=list[UserResponse],
+    summary="Listar usuarios",
+    description="Devuelve usuarios y permite filtrar por rol y estado.",
+    response_description="Lista de usuarios encontrados",
+)
 async def get_users(
     role: Annotated[UserRole | None, Query(description="Filtrar por rol")] = None,
     is_active: Annotated[bool | None, Query(description="Filtrar por estado")] = None,
 ) -> list[dict]:
-    """
-    Obtiene la lista de todos los usuarios con opciones de filtrado.
-    
-    - **role**: Filtrar por rol (admin, support, user)
-    - **is_active**: Filtrar por estado (true/false)
-    """
-    result = users_db.copy()
-
-    if role is not None:
-        result = [user for user in result if user["role"] == role.value]
-
-    if is_active is not None:
-        result = [user for user in result if user["is_active"] == is_active]
-
-    return result
+    return user_service.list_users(role, is_active)
 
 
-@router.get("/{user_id}", response_model=UserResponse, summary="Obtener usuario por ID")
-async def get_user(user_id: int) -> dict:
-    """
-    Obtiene un usuario específico por su ID.
-    
-    - **user_id**: ID único del usuario (Path Parameter)
-    """
-    user = next((u for u in users_db if u["id"] == user_id), None)
-    
-    if user is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Usuario con ID {user_id} no encontrado"
-        )
-    
+@router.get(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Consultar usuario por ID",
+    description="Busca un usuario mediante un parámetro de ruta.",
+    response_description="Usuario solicitado",
+)
+async def get_user(user: Annotated[dict, Depends(get_user_or_404)]) -> dict:
     return user
 
 
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Crear usuario")
+@router.post(
+    "",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear usuario",
+    description="Registra un usuario validado con Pydantic y evita correos duplicados.",
+    response_description="Usuario creado",
+)
 async def create_user(user: UserCreate) -> dict:
-    """
-    Crea un nuevo usuario en el sistema.
-    
-    Validaciones:
-    - El nombre debe tener mínimo 3 caracteres
-    - El email debe ser válido y único
-    - El role debe ser uno de: admin, support, user
-    - is_active es booleano
-    """
-    global next_id
-    
-    if any(existing_user["email"] == str(user.email) for existing_user in users_db):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="El email ya está registrado en el sistema"
-        )
-    
-    new_user = {
-        "id": next_id,
-        "name": user.name,
-        "email": str(user.email),
-        "role": user.role.value,
-        "is_active": user.is_active
-    }
-    
-    users_db.append(new_user)
-    next_id += 1
-    
-    return new_user
+    return user_service.create_user(user)
+
+
+@router.put(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Actualizar usuario completamente",
+    description="Reemplaza todos los campos editables de un usuario existente.",
+    response_description="Usuario actualizado",
+)
+async def update_user(
+    user: UserUpdate,
+    current_user: Annotated[dict, Depends(get_user_or_404)],
+) -> dict:
+    return user_service.update_user(current_user["id"], user, current_user)
+
+
+@router.patch(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Actualizar usuario parcialmente",
+    description="Modifica únicamente los campos enviados por el cliente.",
+    response_description="Usuario actualizado parcialmente",
+)
+async def patch_user(
+    current_user: Annotated[dict, Depends(get_user_or_404)],
+    user: UserPatch | None = None,
+) -> dict:
+    return user_service.patch_user(user, current_user)
+
+
+@router.delete(
+    "/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar usuario",
+    description="Elimina un usuario existente y no devuelve contenido.",
+    response_description="Usuario eliminado correctamente",
+)
+async def delete_user(
+    current_user: Annotated[dict, Depends(get_user_or_404)],
+) -> Response:
+    user_service.delete_user(current_user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
